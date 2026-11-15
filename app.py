@@ -1,3 +1,4 @@
+import os
 import sqlite3
 from datetime import datetime
 from pathlib import Path
@@ -6,7 +7,11 @@ import requests
 from flask import Flask, g, redirect, render_template, request, url_for
 
 app = Flask(__name__)
-DB_PATH = Path(__file__).with_name("skycast.db")
+# Vercel's filesystem is read-only except /tmp (temporary storage).
+if os.environ.get("VERCEL"):
+    DB_PATH = Path("/tmp/skycast.db")
+else:
+    DB_PATH = Path(__file__).with_name("skycast.db")
 
 GEO_URL = "https://geocoding-api.open-meteo.com/v1/search"
 FORECAST_URL = "https://api.open-meteo.com/v1/forecast"
