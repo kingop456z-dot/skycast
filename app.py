@@ -4,6 +4,7 @@ from datetime import datetime
 from pathlib import Path
 
 import requests
+from markupsafe import Markup
 from flask import Flask, g, redirect, render_template, request, url_for
 
 app = Flask(__name__)
@@ -117,7 +118,7 @@ def fetch_forecast(lat, lon):
         "latitude": lat,
         "longitude": lon,
         "current": "temperature_2m,apparent_temperature,relative_humidity_2m,precipitation,weather_code,wind_speed_10m",
-        "hourly": "precipitation_probability",
+        "hourly": "precipitation_probability,temperature_2m",
         "minutely_15": "precipitation,rain,showers",
         "forecast_minutely_15": 12,
         "models": "best_match",
@@ -128,6 +129,75 @@ def fetch_forecast(lat, lon):
     res = requests.get(FORECAST_URL, params=params, timeout=10)
     res.raise_for_status()
     return res.json()
+
+
+
+# ---------------------------------------------------------------- charts (server-rendered SVG)
+def _scale(v, lo, hi, a, b):
+    return a + (v - lo) / ((hi - lo) or 1) * (b - a)
+
+
+def _chart_frame(w, h, pad, lo, hi, ticks=4, unit="\u00b0"):
+    """Grid lines and y-axis labels. Returns (svg_parts, y_fn)."""
+    l, r, t, b = pad
+    y = lambda v: _scale(v, lo, hi, h - b, t)
+    parts = []
+    for i in range(ticks + 1):
+        v = lo + (hi - lo) * i / ticks
+        parts.append(f'<line x1="{l}" x2="{w - r}" y1="{y(v):.1f}" y2="{y(v):.1f}" class="gl"/>')
+        parts.append(f'<text x="{l - 8}" y="{y(v) + 4:.1f}" class="ax" text-anchor="end">{round(v)}{unit}</text>')
+    return parts, y
+
+
+def hourly_chart(hours, temps, rain):
+    """Line chart of temperature for the next hours, with rain-chance bars underneath."""
+    w, h = 720, 280
+    pad = (46, 16, 28, 58)
+    lo, hi = min(temps) - 2, max(temps) + 2
+    parts, y = _chart_frame(w, h, pad, lo, hi)
+    n = len(temps)
+    x = lambda i: _scale(i, 0, n - 1, pad[0], w - pad[1])
+    # rain chance bars (0-100%) in the bottom strip
+    bw = (w - pad[0] - pad[1]) / n * 0.55
+    for i, p in enumerate(rain):
+        bh = max(p / 100 * 26, 1)
+        parts.append(f'<rect x="{x(i) - bw / 2:.1f}" y="{h - 22 - bh:.1f}" width="{bw:.1f}" height="{bh:.1f}" rx="2" class="rb"><title>{hours[i]} rain {p}%</title></rect>')
+    pts = " ".join(f"{x(i):.1f},{y(t):.1f}" for i, t in enumerate(temps))
+    area = f"{x(0):.1f},{h - pad[3]} {pts} {x(n - 1):.1f},{h - pad[3]}"
+    parts.append(f'<polygon points="{area}" class="area"/>')
+    parts.append(f'<polyline points="{pts}" class="line"/>')
+    for i in range(0, n, 3):
+        parts.append(f'<text x="{x(i):.1f}" y="{h - 4}" class="ax" text-anchor="middle">{hours[i]}</text>')
+    for i, t in enumerate(temps):
+        parts.append(f'<circle cx="{x(i):.1f}" cy="{y(t):.1f}" r="3" class="dot"><title>{hours[i]}: {round(t)}\u00b0C, rain {rain[i]}%</title></circle>')
+    hi_i, lo_i = temps.index(max(temps)), temps.index(min(temps))
+    for i, kind in ((hi_i, "max"), (lo_i, "min")):
+        dy = -10 if kind == "max" else 18
+        parts.append(f'<text x="{x(i):.1f}" y="{y(temps[i]) + dy:.1f}" class="pk" text-anchor="middle">{round(temps[i])}\u00b0</text>')
+    return Markup(f'<svg viewBox="0 0 {w} {h}" class="chart" role="img" aria-label="Temperature for the next {n} hours">{"".join(parts)}</svg>')
+
+
+def weekly_chart(labels, highs, lows):
+    """High and low temperature lines for the week, with the range shaded between them."""
+    w, h = 720, 280
+    pad = (46, 16, 28, 34)
+    lo, hi = min(lows) - 2, max(highs) + 2
+    parts, y = _chart_frame(w, h, pad, lo, hi)
+    n = len(highs)
+    x = lambda i: _scale(i, 0, n - 1, pad[0] + 20, w - pad[1] - 20)
+    top = [(x(i), y(v)) for i, v in enumerate(highs)]
+    bot = [(x(i), y(v)) for i, v in enumerate(lows)]
+    band = " ".join(f"{a:.1f},{b:.1f}" for a, b in top + bot[::-1])
+    parts.append(f'<polygon points="{band}" class="band"/>')
+    parts.append('<polyline points="' + " ".join(f"{a:.1f},{b:.1f}" for a, b in top) + '" class="hi"/>')
+    parts.append('<polyline points="' + " ".join(f"{a:.1f},{b:.1f}" for a, b in bot) + '" class="lo"/>')
+    for i in range(n):
+        parts.append(f'<circle cx="{top[i][0]:.1f}" cy="{top[i][1]:.1f}" r="3.5" class="hd"><title>{labels[i]}: high {round(highs[i])}\u00b0C</title></circle>')
+        parts.append(f'<circle cx="{bot[i][0]:.1f}" cy="{bot[i][1]:.1f}" r="3.5" class="ld"><title>{labels[i]}: low {round(lows[i])}\u00b0C</title></circle>')
+        parts.append(f'<text x="{top[i][0]:.1f}" y="{top[i][1] - 9:.1f}" class="pk" text-anchor="middle">{round(highs[i])}\u00b0</text>')
+        parts.append(f'<text x="{bot[i][0]:.1f}" y="{bot[i][1] + 17:.1f}" class="pk lowt" text-anchor="middle">{round(lows[i])}\u00b0</text>')
+        parts.append(f'<text x="{x(i):.1f}" y="{h - 6}" class="ax" text-anchor="middle">{labels[i]}</text>')
+    return Markup(f'<svg viewBox="0 0 {w} {h}" class="chart" role="img" aria-label="7-day high and low temperature">{"".join(parts)}</svg>')
 
 
 def build_weather(data):
@@ -161,7 +231,21 @@ def build_weather(data):
             "high": round(daily["temperature_2m_max"][i]),
         })
 
+    htimes = data["hourly"]["time"][idx:idx + 24]
+    htemps = [v for v in data["hourly"].get("temperature_2m", [])[idx:idx + 24] if v is not None]
+    hrain = [v or 0 for v in data["hourly"]["precipitation_probability"][idx:idx + 24]]
+    hours = [t[11:16] for t in htimes]
+    n = min(len(hours), len(htemps), len(hrain))
+    hourly_svg = hourly_chart(hours[:n], htemps[:n], hrain[:n]) if n >= 2 else None
+    weekly_svg = weekly_chart(
+        [d["label"] for d in days],
+        [daily["temperature_2m_max"][i] for i in range(len(days))],
+        [daily["temperature_2m_min"][i] for i in range(len(days))],
+    ) if len(days) >= 2 else None
+
     return {
+        "hourly_chart": hourly_svg,
+        "weekly_chart": weekly_svg,
         "temp": round(cur["temperature_2m"]),
         "feels": round(cur["apparent_temperature"]),
         "humidity": cur["relative_humidity_2m"],

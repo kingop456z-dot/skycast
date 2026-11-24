@@ -93,6 +93,24 @@
     .msg { margin-top: 2.5rem; text-align: center; }
     .msg.err { color: var(--danger); }
     footer { margin-top: 1rem; text-align: center; font-size: 0.75rem; color: var(--muted); }
+    .chartcard { margin-top: 1.5rem; }
+    .chartcard h3 { margin: 0 0 .25rem; }
+    .chart { width: 100%; height: auto; display: block; }
+    .chart .gl { stroke: var(--border); stroke-width: 1; }
+    .chart .ax { fill: var(--muted); font-size: 11px; font-family: inherit; }
+    .chart .line { fill: none; stroke: var(--primary); stroke-width: 3; stroke-linejoin: round; stroke-linecap: round; }
+    .chart .area { fill: var(--primary); opacity: .12; }
+    .chart .dot { fill: var(--card); stroke: var(--primary); stroke-width: 2; }
+    .chart .rb { fill: var(--rain); opacity: .45; }
+    .chart .pk { fill: var(--fg); font-size: 12px; font-weight: 700; }
+    .chart .band { fill: oklch(0.8 0.1 70); opacity: .22; }
+    .chart .hi { fill: none; stroke: oklch(0.65 0.18 50); stroke-width: 3; stroke-linejoin: round; }
+    .chart .lo { fill: none; stroke: var(--primary); stroke-width: 3; stroke-linejoin: round; }
+    .chart .hd { fill: var(--card); stroke: oklch(0.65 0.18 50); stroke-width: 2; }
+    .chart .ld { fill: var(--card); stroke: var(--primary); stroke-width: 2; }
+    .chart .lowt { fill: var(--muted); }
+    .legend { display: flex; gap: 1rem; flex-wrap: wrap; font-size: .8rem; color: var(--muted); margin: 0 0 .5rem; }
+    .legend i { display: inline-block; width: .8rem; height: .8rem; border-radius: 3px; margin-right: .3rem; vertical-align: -1px; }
     @media (min-width: 1024px) {
       .wrap { padding: 3.5rem 2.5rem; }
       h1 { font-size: 3rem; }
@@ -200,6 +218,20 @@
         {% endfor %}
       </section>
     </div>
+    {% if weather.hourly_chart %}
+    <section class="card chartcard">
+      <h3>Temperature - next 24 hours</h3>
+      <p class="legend"><span><i style="background:var(--primary)"></i>Temperature (&deg;C)</span><span><i style="background:var(--rain);opacity:.5"></i>Chance of rain (bars)</span></p>
+      {{ weather.hourly_chart }}
+    </section>
+    {% endif %}
+    {% if weather.weekly_chart %}
+    <section class="card chartcard">
+      <h3>7-day temperature trend</h3>
+      <p class="legend"><span><i style="background:oklch(0.65 0.18 50)"></i>Daily high</span><span><i style="background:var(--primary)"></i>Daily low</span></p>
+      {{ weather.weekly_chart }}
+    </section>
+    {% endif %}
     <footer>Local time {{ weather.local_time }} · Best-match model from national weather services (Open-Meteo) · Auto-refreshes every 10 min</footer>
     {% endif %}
   </div>
